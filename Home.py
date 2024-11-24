@@ -1,7 +1,6 @@
 import streamlit as st
 from utils.auth import UpstoxAuth
-import yaml
-from pathlib import Path
+import time
 
 # Page configuration
 st.set_page_config(
@@ -20,36 +19,31 @@ st.markdown("""
             width: 100%;
             margin-top: 1rem;
         }
-        .success-msg {
-            padding: 1rem;
-            border-radius: 0.5rem;
-            background-color: #d4edda;
-            color: #155724;
-            margin: 1rem 0;
-        }
-        .error-msg {
-            padding: 1rem;
-            border-radius: 0.5rem;
-            background-color: #f8d7da;
-            color: #721c24;
-            margin: 1rem 0;
-        }
-        .stDeployButton {
-            display: none !important;
+        .debug-info {
+            font-size: 12px;
+            color: #666;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            margin-top: 20px;
         }
     </style>
 """, unsafe_allow_html=True)
 
-# Initialize authentication
-auth = UpstoxAuth()
+def init_session_state():
+    """Initialize session state variables"""
+    if 'authentication_status' not in st.session_state:
+        st.session_state.authentication_status = None
+    if 'auth_message' not in st.session_state:
+        st.session_state.auth_message = None
 
 def main():
-    # Center-aligned title with logo
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.image("https://assets-netstorage.groww.in/stock-assets/logos/UPLG857753.png", width=200)
-        st.markdown("<h1 style='text-align: center;'>Algo Trading</h1>", unsafe_allow_html=True)
-
+    init_session_state()
+    auth = UpstoxAuth()
+    
+    # Center-aligned title
+    st.markdown("<h1 style='text-align: center;'>🤖 Algo Trading</h1>", unsafe_allow_html=True)
+    
     # Handle OAuth callback
     query_params = st.experimental_get_query_params()
     if "code" in query_params:
@@ -58,12 +52,27 @@ def main():
             token = auth.get_access_token(auth_code)
             if token:
                 st.session_state.access_token = token
-                st.experimental_set_query_params()  # Clear URL parameters
-                st.success("Successfully logged in!")
+                st.session_state.authentication_status = "success"
+                st.session_state.auth_message = "Successfully authenticated!"
+                # Clear URL parameters
+                st.experimental_set_query_params()
+                time.sleep(1)  # Brief pause for better UX
                 st.rerun()
-
-    # Check authentication status
-    if not auth.is_authenticated():
+            else:
+                st.session_state.authentication_status = "failed"
+                st.session_state.auth_message = "Authentication failed. Please try again."
+    
+    # Display authentication status message if any
+    if st.session_state.auth_message:
+        if st.session_state.authentication_status == "success":
+            st.success(st.session_state.auth_message)
+        else:
+            st.error(st.session_state.auth_message)
+        # Clear the message after displaying
+        st.session_state.auth_message = None
+    
+    # Main interface
+    if "access_token" not in st.session_state:
         st.markdown("""
             <div style='text-align: center; margin: 2rem 0;'>
                 <p style='color: #666; margin-bottom: 2rem;'>
@@ -73,9 +82,11 @@ def main():
         """, unsafe_allow_html=True)
         
         if st.button("Login with Upstox", key="login_button"):
-            auth.redirect_to_upstox()
+            login_url = auth.get_login_url()
+            st.markdown(f'<meta http-equiv="refresh" content="0;url={login_url}">', unsafe_allow_html=True)
+            
     else:
-        # Display user profile
+        # Get and display user profile
         profile = auth.get_user_profile()
         if profile:
             st.markdown(f"""
@@ -99,6 +110,20 @@ def main():
             if st.button("Logout"):
                 auth.logout()
                 st.rerun()
+        else:
+            st.error("Failed to load profile. Please try logging in again.")
+            if st.button("Retry Login"):
+                auth.logout()
+                st.rerun()
+
+    # Add debug information in development
+    if not auth._is_streamlit_cloud():
+        with st.expander("Debug Information"):
+            st.markdown(f"""
+                - Redirect URI: `{auth.redirect_uri}`
+                - Environment: {'Streamlit Cloud' if auth._is_streamlit_cloud() else 'Local'}
+                - Session State Keys: {list(st.session_state.keys())}
+            """)
 
 if __name__ == "__main__":
     main()
